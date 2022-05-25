@@ -87,6 +87,7 @@ def padding_and_cropping(target_patchsize:np.array, datapath:str, dirpath:str)
     '''
         resize resampled  data, the same size as the input of NN
         datapath: e.g. data/1.nii.gz
+        target_patchsize:   the pre-computed patchsize, as default, is the median  of datasets' shape for each axis.
     '''
 
     # If the patch size is not divisible by 2^n(d) for each axis, 
