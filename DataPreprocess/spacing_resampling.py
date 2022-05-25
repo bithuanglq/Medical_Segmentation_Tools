@@ -1,9 +1,14 @@
+import os
+import numpy as np
+import pandas as pd
 import SimpleITK as sitk
 import PIL.Image as Image
-import numpy as np
-import torch
-from torch.nn import functional as F
+from skimage.transform import resize
+from batchgenerators.augmentations.utils import resize_segmentation
 from scipy.ndimage.interpolation import map_coordinates
+import torch
+import torch.nn.functional as F
+
 
 
 def show_certain_image_of_3d(datapath, slice):
@@ -23,114 +28,217 @@ def show_certain_image_of_3d(datapath, slice):
 
 
 
-def resample_seg(datapath, dirpath):
+target_spacing_percentile = 50  # median spacing
+anisotropy_threshold = 3    # anisotropy
+
+
+
+def compute_target_spacing(csvpath:str):
     '''
-        3d resampling for seg, make that the voxel spacing of x,y,z axis is the same.
-        Segmentation maps are resampled by converting them to one hot encodings.
-        Each channel is then interpolated with linear interpolation and the segmentation mask is retrieved by an argmax operation.
+        e.g.    
+                filename       sitk_shape                                        spacing
+            0    amos_0001.nii.gz   (90, 636, 636)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            1    amos_0004.nii.gz   (78, 582, 582)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            2    amos_0005.nii.gz   (80, 635, 635)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            3    amos_0006.nii.gz   (99, 621, 621)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            4    amos_0007.nii.gz  (107, 578, 578)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            ..                ...              ...                                            ...
+            195  amos_0404.nii.gz   (84, 597, 597)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            196  amos_0405.nii.gz   (90, 657, 657)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            197  amos_0406.nii.gz   (82, 620, 620)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            198  amos_0408.nii.gz  (104, 686, 686)  (0.6882500052452087, 0.6882500052452087, 5.0)
+            199  amos_0410.nii.gz  (107, 651, 651)  (0.6882500052452087, 0.6882500052452087, 5.0)
 
-        :params datapath: the path of the seg file      e.g. 'data/patient46_seg.nii.gz'
-        :parmas dirpath : the stored path of resampled seg file 
+            [200 rows x 3 columns]
+    '''
+    patient_nums = 200 
+
+
+    df = pd.read_csv(csvpath)
+    spacings = df['spacing'][:patient_nums]
+    tmp_spacings = []
+    for spacing in spacings:
+        tmp_spacing = []
+        for s in spacing[1:-1].split(','):
+            tmp_spacing.append(float(s))
+        tmp_spacings.append(tmp_spacing)
+    spacings = np.array(tmp_spacings)   # (patient_nums, 3)
+
+    target_spacing = np.percentile(np.vstack(spacings), target_spacing_percentile, 0)  # 取中位数
+    print(target_spacing)    # [0.68825001 0.68825001 5.        ]
+
+
+
+def resample_data(target_spacing:np.darray, datapath:str, dirpath:str):
+    '''
+        resample data to the same spacing
+        datapath: e.g. data/1.nii.gz
     '''
 
-    data = sitk.ReadImage(datapath)
-    array = sitk.GetArrayFromImage(data)
-    # print(array.shape)  # (817,512,512)
-    # print(data.GetSize())   # (512,512,817)
-    # print(data.GetSpacing()) # (0.625,0.625,0.25)
-    dtype_data = array.dtype
-    array = F.one_hot(torch.from_numpy(array.astype('int16')).type(torch.LongTensor))   # one hot 
-    Array = array.numpy().astype(dtype_data)
-    print(Array.shape, Array.dtype)             # (817,512,512) uint16
-
-
-    reshaped_final_data = []
-    for c in range(Array.shape[-1]):    # for each class
-        print('class:',c)
-        array = Array[:,:,:,c]
-        shape = array.shape
-        new_shape = np.array([int(np.round(817*0.25/0.625)),512,512])   # new_spacing (0.625, 0.625, 0.625)
-        rows, cols, dim = new_shape[0], new_shape[1], new_shape[2]
-        orig_rows, orig_cols, orig_dim = shape
-
-        row_scale = float(orig_rows) / rows
-        col_scale = float(orig_cols) / cols
-        dim_scale = float(orig_dim) / dim
-
-        map_rows, map_cols, map_dims = np.mgrid[:rows, :cols, :dim]
-        map_rows = row_scale * (map_rows + 0.5) - 0.5
-        map_cols = col_scale * (map_cols + 0.5) - 0.5
-        map_dims = dim_scale * (map_dims + 0.5) - 0.5
-
-        coord_map = np.array([map_rows, map_cols, map_dims])
-
-        # interpolation
-        unique_labels = np.unique(array)
-        reshaped = np.zeros(new_shape, dtype=dtype_data)
-
-        for i, cl in enumerate(unique_labels):
-            print(i,cl)
-            reshaped_multihot = np.round(
-                map_coordinates((array == cl).astype(float), coord_map, order=1, mode='nearest'))   # linear interpolation
-            reshaped[reshaped_multihot > 0.5] = cl
-        reshaped_final_data.append(reshaped[None].astype(dtype_data))
+    # 根据spacing确定是否为 anisotropic
+    do_separate_z = (np.max(target_spacing) / np.min(target_spacing)) > anisotropy_threshold    # True
     
-    # inverse one hot
-    reshaped_final_data = np.array(reshaped_final_data, dtype=dtype_data)
-    reshaped_final_data = np.squeeze(reshaped_final_data, axis=1)
-    print(reshaped_final_data.shape, reshaped_final_data.dtype) # (c, N, 512,512) uint16
-    Array = np.argmax(reshaped_final_data, axis=0).astype('uint16')
-    print(Array.shape, Array.dtype)
 
-    # save
-    resampled_data = sitk.GetImageFromArray(Array)
-    resampled_data.SetSpacing((0.625, 0.625, 0.625))
-    sitk.WriteImage(resampled_data, dirpath)
+    # resample
+    if do_separate_z:
+        data = sitk.ReadImage(os.path.join(datapath))
+        array = sitk.GetArrayFromImage(data)
+        array = np.transpose(array, (2,1,0))        # 维度与spacing维度是一一对应，之前array(z,y,x) spacing(x,y,z) size(x,y,z)
+        dtype_data = array.dtype
+        spacing = data.GetSpacing()
+        shape = data.GetSize()
+        new_shape = np.array([int(np.round(shape[i]*spacing[i]/target_spacing[i])) for i in range(len(shape))]) # 一定要取整
+
+        # 先采样两个高分辨率（低spacing）轴
+        axis = np.where(max(spacing) / np.array(spacing) == 1)[0]
+        assert len(axis)==1, 'only one anisotropic axis supported'
+
+        axis = axis[0]
+        if axis == 0:
+            new_shape_2d = new_shape[1:]
+        elif axis == 1:
+            new_shape_2d = new_shape[[0, 2]]
+        else:
+            new_shape_2d = new_shape[:-1]
+
+        reshaped_data = []
+        resize_fn = resize
+        order = 3
+        for slice_id in range(shape[axis]):
+            if axis == 0:
+                reshaped_data.append(resize_fn(array[slice_id], new_shape_2d, order).astype(dtype_data))
+            elif axis == 1:
+                reshaped_data.append(resize_fn(array[:, slice_id], new_shape_2d, order).astype(dtype_data))
+            else:
+                reshaped_data.append(resize_fn(array[:, :, slice_id], new_shape_2d, order).astype(dtype_data))
+        reshaped_data = np.stack(reshaped_data, axis)
 
 
 
-def resample_data(datapath, dirpath):
+        # 再采样低分辨率（高spacing）轴
+        if shape[axis] != new_shape[axis]:
+            rows, cols, dim = new_shape[0], new_shape[1], new_shape[2]
+            orig_rows, orig_cols, orig_dim = shape
+
+            row_scale = float(orig_rows) / rows
+            col_scale = float(orig_cols) / cols
+            dim_scale = float(orig_dim) / dim
+
+            map_rows, map_cols, map_dims = np.mgrid[:rows, :cols, :dim]                 #  rows默认向上取整
+            map_rows = row_scale * (map_rows + 0.5) - 0.5
+            map_cols = col_scale * (map_cols + 0.5) - 0.5
+            map_dims = dim_scale * (map_dims + 0.5) - 0.5
+
+            coord_map = np.array([map_rows, map_cols, map_dims])
+            reshaped_final_data = (map_coordinates(reshaped_data, coord_map, order=3, mode='nearest').astype(dtype_data))    # done with third order spline
+        else:
+            reshaped_final_data = reshaped_data
+        reshaped_final_data = np.transpose(reshaped_final_data, (2,1,0))
+
+
+        # save
+        print(reshaped_final_data.shape)    # (z,y,x)
+        resampled_data = sitk.GetImageFromArray(reshaped_final_data)
+        resampled_data.SetSpacing(target_spacing)
+        sitk.WriteImage(resampled_data, os.path.join(dirpath))
+
+
+
+def resample_seg(target_spacing:np.darray, datapath:str, dirpath:str):
     '''
-        3d resampling for data, make that the voxel spacing of x,y,z axis is the same.
-
-        :params datapath: the path of the data file    e.g. 'data/patient46.nii.gz'
-        :parmas dirpath : the stored path of resampled data file 
+        resample label to the same spacing
     '''
 
+    # 根据spacing确定是否为 anisotropic
+    do_separate_z = (np.max(target_spacing) / np.min(target_spacing)) > anisotropy_threshold    # True
+    
 
-    data = sitk.ReadImage(datapath)
-    array = sitk.GetArrayFromImage(data)
-    # print(array.shape)  # (817,512,512)
-    # print(data.GetSize())   # (512,512,817)
-    # print(data.GetSpacing()) # (0.625,0.625,0.25)
-    dtype_data = array.dtype
-    print(array.shape, array.dtype)             # int16
-    print(np.unique(array))
+    # resample
+    if do_separate_z:
+        data = sitk.ReadImage(os.path.join(datapath))
+        array = sitk.GetArrayFromImage(data)
+        array = np.transpose(array, (2,1,0))        # 维度与spacing维度是一一对应
+        dtype_data = array.dtype
+        spacing = data.GetSpacing()
+        shape = data.GetSize()
+        new_shape = np.array([int(np.round(shape[i]*spacing[i]/target_spacing[i])) for i in range(len(shape))])
 
-    reshaped_final_data = []
-    shape = array.shape
-    new_shape = np.array([int(np.round(817*0.25/0.625)),512,512])
-    rows, cols, dim = new_shape[0], new_shape[1], new_shape[2]
-    orig_rows, orig_cols, orig_dim = shape
+        array = F.one_hot(torch.from_numpy(array.astype('int16')).type(torch.LongTensor))   # one hot 
+        Array = array.numpy().astype(dtype_data)
 
-    row_scale = float(orig_rows) / rows
-    col_scale = float(orig_cols) / cols
-    dim_scale = float(orig_dim) / dim
+        reshaped_final_data = []
+        for c in range(Array.shape[-1]):
+            array = Array[:,:,:,c]
 
-    map_rows, map_cols, map_dims = np.mgrid[:rows, :cols, :dim]
-    map_rows = row_scale * (map_rows + 0.5) - 0.5
-    map_cols = col_scale * (map_cols + 0.5) - 0.5
-    map_dims = dim_scale * (map_dims + 0.5) - 0.5
+            # 先采样两个高分辨率（低spacing）轴
+            axis = np.where(max(spacing) / np.array(spacing) == 1)[0]
+            assert len(axis)==1, 'only one anisotropic axis supported'
 
-    coord_map = np.array([map_rows, map_cols, map_dims])
-    reshaped_final_data = (map_coordinates(array, coord_map, order=3, mode='nearest').astype(dtype_data))    # done with third order spline
-    print(reshaped_final_data.shape, reshaped_final_data.dtype) # ( N, 512,512) int16
-    print(np.unique(reshaped_final_data))
+            axis = axis[0]
+            if axis == 0:
+                new_shape_2d = new_shape[1:]
+            elif axis == 1:
+                new_shape_2d = new_shape[[0, 2]]
+            else:
+                new_shape_2d = new_shape[:-1]
 
-    # save
-    resampled_data = sitk.GetImageFromArray(reshaped_final_data)
-    resampled_data.SetSpacing((0.625, 0.625, 0.625))
-    sitk.WriteImage(resampled_data, dirpath)
+            reshaped_data = []
+            resize_fn = resize_segmentation
+            order = 0
+            for slice_id in range(shape[axis]):
+                if axis == 0:
+                    reshaped_data.append(resize_fn(array[slice_id], new_shape_2d, order).astype(dtype_data))
+                elif axis == 1:
+                    reshaped_data.append(resize_fn(array[:, slice_id], new_shape_2d, order).astype(dtype_data))
+                else:
+                    reshaped_data.append(resize_fn(array[:, :, slice_id], new_shape_2d, order).astype(dtype_data))
+            reshaped_data = np.stack(reshaped_data, axis)
+
+
+
+            # 再采样低分辨率（高spacing）轴
+            if shape[axis] != new_shape[axis]:
+                rows, cols, dim = new_shape[0], new_shape[1], new_shape[2]
+                orig_rows, orig_cols, orig_dim = shape
+
+                row_scale = float(orig_rows) / rows
+                col_scale = float(orig_cols) / cols
+                dim_scale = float(orig_dim) / dim
+
+                map_rows, map_cols, map_dims = np.mgrid[:rows, :cols, :dim]
+                map_rows = row_scale * (map_rows + 0.5) - 0.5
+                map_cols = col_scale * (map_cols + 0.5) - 0.5
+                map_dims = dim_scale * (map_dims + 0.5) - 0.5
+
+                coord_map = np.array([map_rows, map_cols, map_dims])
+
+                # interpolation
+                unique_labels = np.unique(reshaped_data)
+                reshaped = np.zeros(new_shape, dtype=dtype_data)
+
+                for i, cl in enumerate(unique_labels):
+                    # print(i,cl)
+                    reshaped_multihot = np.round(
+                        map_coordinates((reshaped_data == cl).astype(float), coord_map, order=1, mode='nearest'))   # linear interpolation
+                    reshaped[reshaped_multihot > 0.5] = cl
+                reshaped_final_data.append(reshaped.astype(dtype_data))
+            else:
+                reshaped_final_data.append(reshaped_data)
+
+        # inverse one hot
+        reshaped_final_data = np.array(reshaped_final_data, dtype=dtype_data)
+        # print(reshaped_final_data.shape, reshaped_final_data.dtype) # (c, x, y, z)  dtype_data
+        reshaped_final_data = np.argmax(reshaped_final_data, axis=0).astype('uint16')
+        reshaped_final_data = np.transpose(reshaped_final_data, (2,1,0))
+
+
+        # save
+        print(reshaped_final_data.shape)
+        resampled_data = sitk.GetImageFromArray(reshaped_final_data)
+        resampled_data.SetSpacing(target_spacing)
+        sitk.WriteImage(resampled_data, os.path.join(dirpath))
+
+
 
 
 
