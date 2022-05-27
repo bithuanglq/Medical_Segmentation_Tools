@@ -83,7 +83,7 @@ def resize_with_cropping(datapath, dirpath, new_shape):
     
    
 
-def padding_and_cropping(target_patchsize:np.array, datapath:str, dirpath:str):
+def padding_and_cropping(target_patchsize:np.array, origin, direction, datapath:str, dirpath:str):
     '''
         resize resampled  data, the same size as the input of NN
         datapath: e.g. data/1.nii.gz
@@ -133,4 +133,6 @@ def padding_and_cropping(target_patchsize:np.array, datapath:str, dirpath:str):
     print(patchsize, array.shape)
     padded_data = sitk.GetImageFromArray(array)
     padded_data.SetSpacing(spacing)
+    padded_data.SetOrigin(origin)
+    padded_data.SetDirection(direction)
     sitk.WriteImage(padded_data, os.path.join(dirpath))
