@@ -69,7 +69,7 @@ def compute_target_spacing(csvpath:str):
 
 
 
-def resample_data(target_spacing:np.darray, datapath:str, dirpath:str):
+def resample_data(target_spacing:np.array, datapath:str, dirpath:str):
     '''
         resample data to the same spacing
         datapath: e.g. data/1.nii.gz
@@ -144,7 +144,7 @@ def resample_data(target_spacing:np.darray, datapath:str, dirpath:str):
 
 
 
-def resample_seg(target_spacing:np.darray, datapath:str, dirpath:str):
+def resample_seg(target_spacing:np.array, origin, direction, datapath:str, dirpath:str):
     '''
         resample label to the same spacing
     '''
@@ -236,6 +236,8 @@ def resample_seg(target_spacing:np.darray, datapath:str, dirpath:str):
         print(reshaped_final_data.shape)
         resampled_data = sitk.GetImageFromArray(reshaped_final_data)
         resampled_data.SetSpacing(target_spacing)
+        resampled_data.SetOrigin(origin)
+        resampled_data.SetDirection(direction)
         sitk.WriteImage(resampled_data, os.path.join(dirpath))
 
 
