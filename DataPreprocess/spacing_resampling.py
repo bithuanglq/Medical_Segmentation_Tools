@@ -143,6 +143,10 @@ def resample_data(target_spacing:np.array, datapath:str, dirpath:str):
         sitk.WriteImage(resampled_data, os.path.join(dirpath))
 
 
+        
+#=======================================
+# 以下也可用于将预测分割图spacing对齐原数据
+#=======================================
 
 def resample_seg(target_spacing:np.array, origin, direction, datapath:str, dirpath:str):
     '''
