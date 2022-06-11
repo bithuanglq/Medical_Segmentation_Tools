@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
             optimizer_D.zero_grad()
             fake_imgs = generator(image).detach()       # detach() 生成器不反向传播
-            loss_D = -torch.mean(discriminator(image, mask)) + torch.mean(discriminator(fake_imgs, mask))
+            loss_D = -torch.mean(discriminator(mask)) + torch.mean(discriminator(fake_imgs))
             loss_D.backward()
             optimizer_D.step()
 
@@ -76,7 +76,7 @@ if __name__ == '__main__':
                 optimizer_G.zero_grad()
                 gen_imgs = generator(image)      # Generate a batch of images
                 dice_loss = 1 - dice_coef_loss(gen_imgs, mask)
-                ad_loss = -torch.mean(discriminator(gen_imgs, mask))           # Adversarial loss
+                ad_loss = -torch.mean(discriminator(gen_imgs))           # Adversarial loss
                 loss_G = dice_loss + ad_loss
                 loss_G.backward()
                 optimizer_G.step()
