@@ -200,7 +200,7 @@ if __name__=='__main__':
                         wandb.save(f'{weight_path}/ckpt_best_{epoch}.pth') 
                         experiment.log({
                                         'learning rate': optimizer.param_groups[0]['lr'],
-                                        'dice': dice
+                                        'dice': dice.item()
                                     })
 
                     # lr scheduler
