@@ -183,10 +183,11 @@ if __name__=='__main__':
                 val_acc,recall,precision = 0,0,0
                 with torch.no_grad():
                     length = 0
+                    dice = 0
                     for i,(val_image, _, val_mask,_) in enumerate(pbar2):
                         val_image,val_mask = val_image.float().cuda(non_blocking=True), val_mask.float().cuda(non_blocking=True)
                         val_out = net(val_image)
-                        dice = dice_coef_loss(input=val_out, target=val_mask)
+                        dice += dice_coef_loss(input=val_out, target=val_mask)
                         length += 1
                     length += 1e-1
                     dice = dice/length
