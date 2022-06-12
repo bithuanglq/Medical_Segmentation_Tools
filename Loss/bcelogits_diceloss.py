@@ -40,7 +40,7 @@ class Dice_BCEWithLogits(nn.module):
         bceloss = bcefunc(input,target)
         input = nn.Sigmoid()(input)
 
-        diceloss = 1 - dice_coef_loss(input,target) 
+        diceloss = dice_coef_loss(input,target) 
 
         return  bceloss + diceloss 
 
