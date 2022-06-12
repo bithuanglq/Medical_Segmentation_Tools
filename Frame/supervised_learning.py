@@ -187,7 +187,7 @@ if __name__=='__main__':
                     for i,(val_image, _, val_mask,_) in enumerate(pbar2):
                         val_image,val_mask = val_image.float().cuda(non_blocking=True), val_mask.float().cuda(non_blocking=True)
                         val_out = net(val_image)
-                        dice += dice_coef_loss(input=val_out, target=val_mask)
+                        dice += 1 - dice_coef_loss(input=val_out, target=val_mask)
                         length += 1
                     length += 1e-1
                     dice = dice/length
