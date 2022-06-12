@@ -3,9 +3,9 @@ import torch
 
 
 
-def dice_loss_oneclass(input:np.array,target:np.array):
-    # input:(N,x,y,z) numpy
-    # target:(N,x,y,z) numpy
+def dice_loss_oneclass(input:torch.Tensor,target:torch.Tensor):
+    # input:(N,x,y,z) torch
+    # target:(N,x,y,z) torch
     inputs = input.flatten()
     targets = target.flatten()
     intersection = inputs*targets
@@ -15,7 +15,7 @@ def dice_loss_oneclass(input:np.array,target:np.array):
 
 
 
-def dice_coef_loss(input:torch.Tensor,target:torch.Tensor,alpha=[1,0]):   # len(alpha) == nclass
+def dice_coef_loss(input:torch.Tensor,target:torch.Tensor,alpha=[1,1,1]):   # len(alpha) == nclass
     # input: (N,nclass,x,y,z) torch 
     # target:(N,nclass,x,y,z) torch
     nclass = target.shape[1]
